@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+
+"""
+Usage:
+    rotate.py [options]
+
+Options:
+    -h,--help        display help message
+    --version        display version and exit
+"""
+
+import time
+import subprocess
+import socket
+import logging
+import multiprocessing
+import atexit
+import docopt
+import dbus
+from gi.repository import GLib
+
+NAME = "yoga370d"
+VERSION = "1.0"
+# Set to True to enable screen and digitizer rotation
+ROTATE_ACTIVE = False
+
+# map sensor-proxy orientation to xrandr and wacom
+XRANDR_ORIENTATION_MAP = {
+    'right-up': 'right',
+    'normal' : 'normal',
+    'bottom-up': 'inverted',
+    'left-up': 'left'
+}
+
+WACOM_ORIENTATION_MAP = {
+    'right-up': 'cw',
+    'normal' : 'none',
+    'bottom-up': 'half',
+    'left-up': 'ccw'
+}
+
+def cmd_and_log(cmd):
+    """Execute cmd and log it"""
+    exit_code = subprocess.call(cmd)
+    log.info("running %s with exit code %s", cmd, exit_code)
+
+def sensor_proxy_signal_handler(source, changedProperties, invalidatedProperties, **kwargs):
+    if source == u'net.hadess.SensorProxy':
+        if 'AccelerometerOrientation' in changedProperties:
+            orientation = changedProperties['AccelerometerOrientation']
+            log.info("dbus signal indicates orientation change to %s", orientation)
+            subprocess.call(["xrandr", "-o", XRANDR_ORIENTATION_MAP[orientation]])
+            for device in wacom:
+                cmd_and_log(["xsetwacom", "--set", device, "rotate", WACOM_ORIENTATION_MAP[orientation]])
+
+def monitor_acpi_events(touch_and_track):
+    """toggle trackpoint and touchpad when changing from laptop to tablet mode anc vice versa"""
+    socketACPI = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    socketACPI.connect("/var/run/acpid.socket")
+
+    log.info("connected to acpi socket %s", socket)
+    while True:
+        event = socketACPI.recv(4096)
+        log.debug("catching acpi event %s", event)
+        print(event)
+        eventACPIDisplayPositionTablet = b'video/tabletmode TBLT 0000008A 00000001 K\n'
+        eventACPIDisplayPositionLaptop = b'video/tabletmode TBLT 0000008A 00000000 K\n'
+        if event == eventACPIDisplayPositionTablet:
+            log.info("display position change detected, tablet mode enabled")
+            for x in touch_and_track:
+                cmd_and_log(["xinput", "disable", x])
+        elif event == eventACPIDisplayPositionLaptop:
+            log.info("display position change detected, laptop mode enabled")
+            for x in touch_and_track:
+                cmd_and_log(["xinput", "enable", x])
+        time.sleep(0.3)
+
+def monitor_stylus_proximity(stylus, finger_touch):
+    out = subprocess.Popen(["xinput", "test", "-proximity", stylus], stdout=subprocess.PIPE)
+    for line in out.stdout:
+        if (line.startswith(b'proximity')):
+            log.debug(line)
+            status = line.split(b' ')[1]
+            cmd_and_log(["xinput", "disable" if status==b'in' else "enable", finger_touch])
+
+def cleanup(touch_and_track, wacom):
+    subprocess.call(["xrandr", "-o", "normal"])
+    for x in touch_and_track:
+        cmd_and_log(["xinput", "enable", x])
+    if ROTATE_ACTIVE:
+        for device in wacom:
+            cmd_and_log(["xsetwacom", "--set", device, "rotate", "none"])
+
+def main(options):
+    # globals
+    global wacom
+    global log
+
+    # logging
+    log = logging.getLogger()
+    logHandler = logging.StreamHandler()
+    log.addHandler(logHandler)
+    logHandler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    log.level = logging.ERROR
+
+    # load wacom devices
+    lines = subprocess.check_output(['xsetwacom', '--list', 'devices']).split(b'\n')
+
+    wacom = [ x.decode().split('\t')[0] for x in lines if x]
+    log.info("detected wacom devices: %s", wacom)
+
+    # load stylus touchpad trackpoint devices
+    lines = subprocess.check_output(['xinput','--list', '--name-only']).decode().split('\n')
+
+    stylus = next(x for x in lines if "stylus" in x)
+    log.info("found stylus %s", stylus)
+
+    finger_touch = next(x for x in lines if "Finger touch" in x)
+    log.info("found finger touch %s", finger_touch)
+
+    # it's crucial to have trackpoints first in this list.
+    # Otherwise enabling/disabling doesn't work as expected and touchpad just stays enabled always
+    touch_and_track = [x for x in lines if "TrackPoint" in x] + [x for x in lines if "Touchpad" in x]
+    log.info("found touchpad and trackpoints %s", touch_and_track)
+
+    # listen for ACPI events to detect switching between laptop/tablet mode
+    acpi_process = multiprocessing.Process(target=monitor_acpi_events, args=(touch_and_track,))
+    acpi_process.start()
+
+    proximity_process = multiprocessing.Process(target=monitor_stylus_proximity, args=(stylus, finger_touch))
+    proximity_process.start()
+
+    atexit.register(cleanup, touch_and_track, wacom)
+
+    # init dbus stuff and subscribe to events
+    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+    bus = dbus.SystemBus()
+    proxy = bus.get_object('net.hadess.SensorProxy', '/net/hadess/SensorProxy')
+    if ROTATE_ACTIVE:
+        props = dbus.Interface(proxy, 'org.freedesktop.DBus.Properties')
+        props.connect_to_signal('PropertiesChanged', sensor_proxy_signal_handler, sender_keyword='sender')
+    iface = dbus.Interface(proxy, 'net.hadess.SensorProxy')
+    iface.ClaimAccelerometer()
+
+    loop = GLib.MainLoop()
+    loop.run()
+
+if __name__ == "__main__":
+    options = docopt.docopt(__doc__)
+    if options["--version"]:
+        print(VERSION)
+        exit()
+    main(options)
