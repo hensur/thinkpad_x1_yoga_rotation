@@ -14,14 +14,18 @@ I've tested it on ArchLinux with kernel 4.14.13-1-ARCH. It should work on other 
 
 ## installation
 
+If you are an Archlinux User install the AUR Package: [yoga370d-git](https://aur.archlinux.org/packages/yoga370d-git/)
+
+Else just clone the repo and execute the script as your user. If you copy it to /usr/local/bin/yoga370d it can be used with the supplied .desktop file.
+
+## usage
+
 This python script provides the following features:
 
 * Listen to dbus signals from sensor proxy and detect when the laptop is converted to tablet mode. Then touchpad and trackpoint are switched off. When going back to laptop mode the orginal state is restored.
 * disable finger touch if stylus is close to the display
 * upon termination, switch on touchpad and trackpoint
 * Change `ROTATE_ACTIVE = False` in the top of the script to `ROTATE_ACTIVE = True` to enable screen rotation as well if your DE does not support it.
-
-## usage
 
 ```
 ./yoga370d
