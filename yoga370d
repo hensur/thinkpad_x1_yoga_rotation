@@ -24,6 +24,7 @@ NAME = "yoga370d"
 VERSION = "1.0"
 # Set to True to enable screen and digitizer rotation
 ROTATE_ACTIVE = False
+KEYBOARD_ACTIVE = True
 
 # map sensor-proxy orientation to xrandr and wacom
 XRANDR_ORIENTATION_MAP = {
@@ -72,13 +73,15 @@ def monitor_acpi_events(touch_and_track):
             log.info("display position change detected, tablet mode enabled")
             for x in touch_and_track:
                 cmd_and_log(["xinput", "disable", x])
-            # enable gnome touch keyboard
-            keyboard_settings.set_boolean("screen-keyboard-enabled", True)
+            if KEYBOARD_ACTIVE:
+                # enable gnome touch keyboard
+                keyboard_settings.set_boolean("screen-keyboard-enabled", True)
         elif event == eventACPIDisplayPositionLaptop:
             log.info("display position change detected, laptop mode enabled")
             for x in touch_and_track:
                 cmd_and_log(["xinput", "enable", x])
-            keyboard_settings.set_boolean("screen-keyboard-enabled", False)
+            if KEYBOARD_ACTIVE:
+                keyboard_settings.set_boolean("screen-keyboard-enabled", False)
         time.sleep(0.3)
 
 def monitor_stylus_proximity(stylus, finger_touch):
