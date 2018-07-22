@@ -17,7 +17,7 @@ import multiprocessing
 import atexit
 import docopt
 import dbus
-from gi.repository import GLib
+from gi.repository import GLib, Gio
 from dbus.mainloop.glib import DBusGMainLoop
 
 NAME = "yoga370d"
@@ -55,9 +55,11 @@ def sensor_proxy_signal_handler(source, changedProperties, invalidatedProperties
                 cmd_and_log(["xsetwacom", "--set", device, "rotate", WACOM_ORIENTATION_MAP[orientation]])
 
 def monitor_acpi_events(touch_and_track):
-    """toggle trackpoint and touchpad when changing from laptop to tablet mode anc vice versa"""
+    """toggle trackpoint and touchpad when changing from laptop to tablet mode and vice versa"""
     socketACPI = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     socketACPI.connect("/var/run/acpid.socket")
+
+    keyboard_settings = Gio.Settings("org.gnome.desktop.a11y.applications") 
 
     log.info("connected to acpi socket %s", socket)
     while True:
@@ -70,10 +72,13 @@ def monitor_acpi_events(touch_and_track):
             log.info("display position change detected, tablet mode enabled")
             for x in touch_and_track:
                 cmd_and_log(["xinput", "disable", x])
+            # enable gnome touch keyboard
+            keyboard_settings.set_boolean("screen-keyboard-enabled", True)
         elif event == eventACPIDisplayPositionLaptop:
             log.info("display position change detected, laptop mode enabled")
             for x in touch_and_track:
                 cmd_and_log(["xinput", "enable", x])
+            keyboard_settings.set_boolean("screen-keyboard-enabled", False)
         time.sleep(0.3)
 
 def monitor_stylus_proximity(stylus, finger_touch):
