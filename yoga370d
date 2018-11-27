@@ -19,6 +19,7 @@ import docopt
 import dbus
 from gi.repository import GLib, Gio
 from dbus.mainloop.glib import DBusGMainLoop
+import re
 
 NAME = "yoga370d"
 VERSION = "1.0"
@@ -120,6 +121,18 @@ def main(options):
 
     # load stylus touchpad trackpoint devices
     lines = subprocess.check_output(['xinput','--list', '--name-only']).decode().split('\n')
+
+    # remove disabled devices
+    lines.remove('')
+    for device in lines:
+        try:
+            props = subprocess.check_output(['xinput','list-props',device]).decode()
+            state = bool(int(re.search('Device Enabled .*([01])\n', props).group(1)))
+        except:
+            state = False;
+        log.info("Device %s is %s", device, 'on' if state else 'off')
+        if not state:
+            lines.remove(device)
 
     stylus = next(x for x in lines if "stylus" in x)
     log.info("found stylus %s", stylus)
