@@ -26,6 +26,7 @@ VERSION = "1.0"
 # Set to True to enable screen and digitizer rotation
 ROTATE_ACTIVE = False
 KEYBOARD_ACTIVE = True
+WM_RESTART_COMMAND = ['i3-msg', 'restart']
 
 # map sensor-proxy orientation to xrandr and wacom
 XRANDR_ORIENTATION_MAP = {
@@ -55,6 +56,8 @@ def sensor_proxy_signal_handler(source, changedProperties, invalidatedProperties
             subprocess.call(["xrandr", "-o", XRANDR_ORIENTATION_MAP[orientation]])
             for device in wacom:
                 cmd_and_log(["xsetwacom", "--set", device, "rotate", WACOM_ORIENTATION_MAP[orientation]])
+            if WM_RESTART_COMMAND:
+                cmd_and_log(WM_RESTART_COMMAND)
 
 def monitor_acpi_events(touch_and_track):
     """toggle trackpoint and touchpad when changing from laptop to tablet mode and vice versa"""
