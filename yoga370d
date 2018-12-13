@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 
 """
-Usage:
-    rotate.py [options]
+yoga370d acts on rotation and mode changes
 
-Options:
-    -h,--help        display help message
-    --version        display version and exit
+configure it by changing the following config variables
 """
 
 import time
@@ -15,17 +12,21 @@ import socket
 import logging
 import multiprocessing
 import atexit
-import docopt
 import dbus
-from gi.repository import GLib, Gio
 from dbus.mainloop.glib import DBusGMainLoop
 import re
+import statewriter
 
 NAME = "yoga370d"
-VERSION = "1.0"
+
 # Set to True to enable screen and digitizer rotation
-ROTATE_ACTIVE = False
+ROTATE_ACTIVE = True
+
+# Activate onboard in Tablet Mode
 KEYBOARD_ACTIVE = True
+
+# command used to restart wm after orientation changes
+# set to None if no restart is wanted
 WM_RESTART_COMMAND = ['i3-msg', 'restart']
 
 # map sensor-proxy orientation to xrandr and wacom
@@ -48,63 +49,88 @@ def cmd_and_log(cmd):
     exit_code = subprocess.call(cmd)
     log.info("running %s with exit code %s", cmd, exit_code)
 
+
 def sensor_proxy_signal_handler(source, changedProperties, invalidatedProperties, **kwargs):
+    """ handle sensor proxy PropertiesChanged which includes screen orientation """
     if source == u'net.hadess.SensorProxy':
-        if 'AccelerometerOrientation' in changedProperties:
+        if 'AccelerometerOrientation' in changedProperties and ROTATE_ACTIVE:
             orientation = changedProperties['AccelerometerOrientation']
             log.info("dbus signal indicates orientation change to %s", orientation)
-            subprocess.call(["xrandr", "-o", XRANDR_ORIENTATION_MAP[orientation]])
+
+            cmd_and_log(["xrandr", "-o", XRANDR_ORIENTATION_MAP[orientation]])
             for device in wacom:
                 cmd_and_log(["xsetwacom", "--set", device, "rotate", WACOM_ORIENTATION_MAP[orientation]])
             if WM_RESTART_COMMAND:
                 cmd_and_log(WM_RESTART_COMMAND)
 
+
 def monitor_acpi_events(touch_and_track):
-    """toggle trackpoint and touchpad when changing from laptop to tablet mode and vice versa"""
+    """
+    listen for the acpi position change event
+    
+    react on it by:
+    - turning input devices off/on 
+    - enabling/disabling the on-screen keyboard
+    """
+    global onboard_proc
+
     socketACPI = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     socketACPI.connect("/var/run/acpid.socket")
 
-    keyboard_settings = Gio.Settings("org.gnome.desktop.a11y.applications") 
+    # ACPI Events used to detect screen orientation
+    EventACPIDisplayPositionTablet = b'video/tabletmode TBLT 0000008A 00000001\n'
+    EventACPIDisplayPositionLaptop = b'video/tabletmode TBLT 0000008A 00000000\n'
 
-    log.info("connected to acpi socket %s", socket)
+    log.info("connected to acpi socket {}".format(socket))
     while True:
         event = socketACPI.recv(4096)
         log.debug("catching acpi event %s", event)
-        print(event)
-        eventACPIDisplayPositionTablet = b'video/tabletmode TBLT 0000008A 00000001 K\n'
-        eventACPIDisplayPositionLaptop = b'video/tabletmode TBLT 0000008A 00000000 K\n'
-        if event == eventACPIDisplayPositionTablet:
+        if event == EventACPIDisplayPositionTablet:
             log.info("display position change detected, tablet mode enabled")
             for x in touch_and_track:
                 cmd_and_log(["xinput", "disable", x])
             if KEYBOARD_ACTIVE:
-                # enable gnome touch keyboard
-                keyboard_settings.set_boolean("screen-keyboard-enabled", True)
-        elif event == eventACPIDisplayPositionLaptop:
+                subprocess.Popen(["onboard"])
+            statewriter.write_state("mode", "tablet")
+            if WM_RESTART_COMMAND:
+                cmd_and_log(WM_RESTART_COMMAND)
+        elif event == EventACPIDisplayPositionLaptop:
             log.info("display position change detected, laptop mode enabled")
             for x in touch_and_track:
                 cmd_and_log(["xinput", "enable", x])
             if KEYBOARD_ACTIVE:
-                keyboard_settings.set_boolean("screen-keyboard-enabled", False)
+                cmd_and_log(["pkill", "onboard"])
+            statewriter.write_state("mode", "laptop")
+            if WM_RESTART_COMMAND:
+                cmd_and_log(WM_RESTART_COMMAND)
         time.sleep(0.3)
 
+
 def monitor_stylus_proximity(stylus, finger_touch):
+    """ disable touch if stylus is used """
     out = subprocess.Popen(["xinput", "test", "-proximity", stylus], stdout=subprocess.PIPE)
+
     for line in out.stdout:
         if (line.startswith(b'proximity')):
-            log.debug(line)
+            log.debug("stylus is nearby {}".format(line))
             status = line.split(b' ')[1]
-            cmd_and_log(["xinput", "disable" if status==b'in' else "enable", finger_touch])
+            cmd_and_log(["xinput", "disable" if status == b'in' else "enable", finger_touch])
+
 
 def cleanup(touch_and_track, wacom):
-    subprocess.call(["xrandr", "-o", "normal"])
+    """ reset all devices to default"""
+    cmd_and_log(["xrandr", "-o", "normal"])
     for x in touch_and_track:
         cmd_and_log(["xinput", "enable", x])
     if ROTATE_ACTIVE:
         for device in wacom:
             cmd_and_log(["xsetwacom", "--set", device, "rotate", "none"])
+    statewriter.write_state("mode", "laptop")
+    if WM_RESTART_COMMAND:
+        cmd_and_log(WM_RESTART_COMMAND)
 
-def main(options):
+
+def main():
     # globals
     global wacom
     global log
@@ -114,12 +140,12 @@ def main(options):
     logHandler = logging.StreamHandler()
     log.addHandler(logHandler)
     logHandler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-    log.level = logging.ERROR
+    log.level = logging.DEBUG
 
     # load wacom devices
     lines = subprocess.check_output(['xsetwacom', '--list', 'devices']).split(b'\n')
 
-    wacom = [ x.decode().split('\t')[0] for x in lines if x]
+    wacom = [x.decode().split('\t')[0] for x in lines if x]
     log.info("detected wacom devices: %s", wacom)
 
     # load stylus touchpad trackpoint devices
@@ -161,18 +187,11 @@ def main(options):
     DBusGMainLoop(set_as_default=True)
     bus = dbus.SystemBus()
     proxy = bus.get_object('net.hadess.SensorProxy', '/net/hadess/SensorProxy')
-    if ROTATE_ACTIVE:
-        props = dbus.Interface(proxy, 'org.freedesktop.DBus.Properties')
-        props.connect_to_signal('PropertiesChanged', sensor_proxy_signal_handler, sender_keyword='sender')
+    props = dbus.Interface(proxy, 'org.freedesktop.DBus.Properties')
+    props.connect_to_signal('PropertiesChanged', sensor_proxy_signal_handler, sender_keyword='sender')
     iface = dbus.Interface(proxy, 'net.hadess.SensorProxy')
     iface.ClaimAccelerometer()
 
-    loop = GLib.MainLoop()
-    loop.run()
 
 if __name__ == "__main__":
-    options = docopt.docopt(__doc__)
-    if options["--version"]:
-        print(VERSION)
-        exit()
-    main(options)
+    main()
