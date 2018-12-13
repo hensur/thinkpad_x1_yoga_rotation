@@ -17,6 +17,7 @@ from dbus.mainloop.glib import DBusGMainLoop
 import re
 from pathlib import Path
 from fileinput import FileInput
+from gi.repository import GLib, Gio
 
 NAME = "yoga370d"
 
@@ -210,6 +211,9 @@ def main():
     props.connect_to_signal('PropertiesChanged', sensor_proxy_signal_handler, sender_keyword='sender')
     iface = dbus.Interface(proxy, 'net.hadess.SensorProxy')
     iface.ClaimAccelerometer()
+
+    loop = GLib.MainLoop()
+    loop.run()
 
 
 if __name__ == "__main__":
