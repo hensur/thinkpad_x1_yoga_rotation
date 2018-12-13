@@ -15,7 +15,8 @@ import atexit
 import dbus
 from dbus.mainloop.glib import DBusGMainLoop
 import re
-import statewriter
+from pathlib import Path
+from fileinput import FileInput
 
 NAME = "yoga370d"
 
@@ -43,6 +44,24 @@ WACOM_ORIENTATION_MAP = {
     'bottom-up': 'half',
     'left-up': 'ccw'
 }
+
+state = str(Path.home().joinpath(".config/yogad/state.sh"))
+
+def write_state(state_var, state_value):
+    """
+    finds occurrence of state var and replaces value with updated one
+    """
+    with FileInput(files=[state], inplace=True) as f:
+        state_found = False
+        for l in f:
+            if l.startswith(state_var.upper() + "="):
+                l = state_var.upper() + "=\"" + state_value + "\""
+                state_found = True
+            print(l, end="")
+
+    if not state_found:
+        with open(state, "a") as f:
+            f.write(state_var.upper() + "=\"" + state_value + "\"")
 
 def cmd_and_log(cmd):
     """Execute cmd and log it"""
@@ -91,7 +110,7 @@ def monitor_acpi_events(touch_and_track):
                 cmd_and_log(["xinput", "disable", x])
             if KEYBOARD_ACTIVE:
                 subprocess.Popen(["onboard"])
-            statewriter.write_state("mode", "tablet")
+            write_state("mode", "tablet")
             if WM_RESTART_COMMAND:
                 cmd_and_log(WM_RESTART_COMMAND)
         elif event == EventACPIDisplayPositionLaptop:
@@ -100,7 +119,7 @@ def monitor_acpi_events(touch_and_track):
                 cmd_and_log(["xinput", "enable", x])
             if KEYBOARD_ACTIVE:
                 cmd_and_log(["pkill", "onboard"])
-            statewriter.write_state("mode", "laptop")
+            write_state("mode", "laptop")
             if WM_RESTART_COMMAND:
                 cmd_and_log(WM_RESTART_COMMAND)
         time.sleep(0.3)
@@ -125,7 +144,7 @@ def cleanup(touch_and_track, wacom):
     if ROTATE_ACTIVE:
         for device in wacom:
             cmd_and_log(["xsetwacom", "--set", device, "rotate", "none"])
-    statewriter.write_state("mode", "laptop")
+    write_state("mode", "laptop")
     if WM_RESTART_COMMAND:
         cmd_and_log(WM_RESTART_COMMAND)
 
