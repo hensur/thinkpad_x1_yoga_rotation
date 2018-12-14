@@ -98,14 +98,16 @@ def monitor_acpi_events(touch_and_track):
     socketACPI.connect("/var/run/acpid.socket")
 
     # ACPI Events used to detect screen orientation
-    EventACPIDisplayPositionTablet = b'video/tabletmode TBLT 0000008A 00000001\n'
-    EventACPIDisplayPositionLaptop = b'video/tabletmode TBLT 0000008A 00000000\n'
+    EventACPIDisplayPositionTablet1 = b'video/tabletmode TBLT 0000008A 00000001\n'
+    EventACPIDisplayPositionTablet2 = b'video/tabletmode TBLT 0000008A 00000001 K\n'
+    EventACPIDisplayPositionLaptop1 = b'video/tabletmode TBLT 0000008A 00000000\n'
+    EventACPIDisplayPositionLaptop2 = b'video/tabletmode TBLT 0000008A 00000000 K\n'
 
     log.info("connected to acpi socket {}".format(socket))
     while True:
         event = socketACPI.recv(4096)
         log.debug("catching acpi event %s", event)
-        if event == EventACPIDisplayPositionTablet:
+        if event == EventACPIDisplayPositionTablet1 or event == EventACPIDisplayPositionTablet2:
             log.info("display position change detected, tablet mode enabled")
             for x in touch_and_track:
                 cmd_and_log(["xinput", "disable", x])
@@ -114,7 +116,7 @@ def monitor_acpi_events(touch_and_track):
             write_state("mode", "tablet")
             if WM_RESTART_COMMAND:
                 cmd_and_log(WM_RESTART_COMMAND)
-        elif event == EventACPIDisplayPositionLaptop:
+        elif event == EventACPIDisplayPositionLaptop1 or event == EventACPIDisplayPositionLaptop2:
             log.info("display position change detected, laptop mode enabled")
             for x in touch_and_track:
                 cmd_and_log(["xinput", "enable", x])
