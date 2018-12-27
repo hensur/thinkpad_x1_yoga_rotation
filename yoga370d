@@ -191,7 +191,7 @@ def main():
             props = subprocess.check_output(['xinput','list-props',device]).decode()
             state = bool(int(re.search('Device Enabled .*([01])\n', props).group(1)))
         except:
-            state = False;
+            state = False
         log.info("Device %s is %s", device, 'on' if state else 'off')
         if not state:
             lines.remove(device)
