@@ -48,6 +48,21 @@ WACOM_ORIENTATION_MAP = {
 
 state = str(Path.home().joinpath(".config/yogad/state.sh"))
 
+def process_running(name):
+    p = subprocess.run(["pgrep", name])
+    if p.returncode == 0:
+        return True
+    return False
+
+def restart_wm():
+    if process_running("i3lock"):
+        log.error("lock screen prevents restart")
+        return
+
+    if WM_RESTART_COMMAND:
+        cmd_and_log(WM_RESTART_COMMAND)
+    
+
 def write_state(state_var, state_value):
     """
     finds occurrence of state var and replaces value with updated one
@@ -80,8 +95,7 @@ def sensor_proxy_signal_handler(source, changedProperties, invalidatedProperties
             cmd_and_log(["xrandr", "-o", XRANDR_ORIENTATION_MAP[orientation]])
             for device in wacom:
                 cmd_and_log(["xsetwacom", "--set", device, "rotate", WACOM_ORIENTATION_MAP[orientation]])
-            if WM_RESTART_COMMAND:
-                cmd_and_log(WM_RESTART_COMMAND)
+            restart_wm()
 
 
 def monitor_acpi_events(touch_and_track):
@@ -114,8 +128,7 @@ def monitor_acpi_events(touch_and_track):
             if KEYBOARD_ACTIVE:
                 subprocess.Popen(["onboard"])
             write_state("mode", "tablet")
-            if WM_RESTART_COMMAND:
-                cmd_and_log(WM_RESTART_COMMAND)
+            restart_wm()
         elif event == EventACPIDisplayPositionLaptop1 or event == EventACPIDisplayPositionLaptop2:
             log.info("display position change detected, laptop mode enabled")
             for x in touch_and_track:
@@ -123,8 +136,7 @@ def monitor_acpi_events(touch_and_track):
             if KEYBOARD_ACTIVE:
                 cmd_and_log(["pkill", "onboard"])
             write_state("mode", "laptop")
-            if WM_RESTART_COMMAND:
-                cmd_and_log(WM_RESTART_COMMAND)
+            restart_wm()
         time.sleep(0.3)
 
 
@@ -148,8 +160,7 @@ def cleanup(touch_and_track, wacom):
         for device in wacom:
             cmd_and_log(["xsetwacom", "--set", device, "rotate", "none"])
     write_state("mode", "laptop")
-    if WM_RESTART_COMMAND:
-        cmd_and_log(WM_RESTART_COMMAND)
+    restart_wm()
 
 
 def main():
