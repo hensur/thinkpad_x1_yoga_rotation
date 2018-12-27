@@ -49,7 +49,7 @@ WACOM_ORIENTATION_MAP = {
 state = str(Path.home().joinpath(".config/yogad/state.sh"))
 
 def process_running(name):
-    p = subprocess.run(["pgrep", name])
+    p = subprocess.run(["pgrep", name], stdout=subprocess.DEVNULL)
     if p.returncode == 0:
         return True
     return False
